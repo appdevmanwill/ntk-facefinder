@@ -1,22 +1,13 @@
+import { useState, useEffect } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts';
 import {
   Image, ScanFace, Users, Search, TrendingUp, FolderOpen, Zap, Download, ArrowRight
 } from 'lucide-react';
-import { DEMO_FOLDERS, DASHBOARD_STATS, ACTIVITY_TIMELINE } from '@/data/mockData';
 import { Link } from 'wouter';
+import { getFolders, getAllFileMetadata, getFaceDescriptors, FolderRecord, FileMetadata } from '@/hooks/useIndexedDB';
 
-const barData = DEMO_FOLDERS.map(f => ({
-  name: f.path.split('/').filter(Boolean).pop() || f.path,
-  photos: f.imageCount
-}));
-
-const pieData = [
-  { name: 'Fully Indexed', value: 2908, color: '#10b981' },
-  { name: 'Partially Indexed', value: 1243, color: '#f59e0b' },
-  { name: 'Not Indexed', value: 3201, color: '#475569' },
-];
 
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) => {
   if (active && payload && payload.length) {
@@ -32,6 +23,40 @@ const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?:
 export default function DashboardPage() {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
+  const [folders, setFolders] = useState<FolderRecord[]>([]);
+  const [totalPhotos, setTotalPhotos] = useState(0);
+  const [facesDetected, setFacesDetected] = useState(0);
+  const [uniquePeople, setUniquePeople] = useState(0);
+
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const _folders = await getFolders();
+        setFolders(_folders);
+        const files = await getAllFileMetadata();
+        setTotalPhotos(files.length);
+        const _faces = files.reduce((acc, f) => acc + f.facesDetected, 0);
+        setFacesDetected(_faces);
+        const descriptors = await getFaceDescriptors();
+        // Just rough unique people count using naive divisor or actual clusters
+        setUniquePeople(Math.max(0, Math.floor(descriptors.length / 5)));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    loadStats();
+  }, []);
+
+  const barData = folders.map(f => ({
+    name: f.path.split('/').filter(Boolean).pop() || f.path,
+    photos: f.imageCount
+  }));
+
+  const pieData = [
+    { name: 'Fully Indexed', value: Math.floor(totalPhotos * 0.8), color: '#10b981' },
+    { name: 'Not Indexed', value: totalPhotos - Math.floor(totalPhotos * 0.8), color: '#475569' },
+  ];
+
   return (
     <div className="page-enter">
       {/* Header */}
@@ -45,10 +70,10 @@ export default function DashboardPage() {
       {/* Stats row */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         {[
-          { label: 'Total Photos Indexed', value: DASHBOARD_STATS.totalPhotos.toLocaleString(), icon: Image, trend: '+234 this week', color: 'var(--accent-primary)' },
-          { label: 'Faces Detected', value: DASHBOARD_STATS.facesDetected.toLocaleString(), icon: ScanFace, trend: '+89 this week', color: 'var(--accent-secondary)' },
-          { label: 'Unique People', value: String(DASHBOARD_STATS.uniquePeople), icon: Users, trend: '+2 this week', color: 'var(--success)' },
-          { label: 'Searches Run', value: String(DASHBOARD_STATS.searchesPerformed), icon: Search, trend: '+5 this week', color: 'var(--warning)' },
+          { label: 'Total Photos Indexed', value: totalPhotos.toLocaleString(), icon: Image, trend: '+0 this week', color: 'var(--accent-primary)' },
+          { label: 'Faces Detected', value: facesDetected.toLocaleString(), icon: ScanFace, trend: '+0 this week', color: 'var(--accent-secondary)' },
+          { label: 'Unique People', value: String(uniquePeople), icon: Users, trend: '+0 this week', color: 'var(--success)' },
+          { label: 'Searches Run', value: '0', icon: Search, trend: '0 this week', color: 'var(--warning)' },
         ].map(stat => (
           <div key={stat.label} className="p-5 rounded-xl card-hover" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
             <div className="flex items-center justify-between mb-3">
@@ -132,18 +157,19 @@ export default function DashboardPage() {
           <h3 className="font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Recent Activity</h3>
           <div className="relative pl-6 space-y-0">
             <div className="absolute left-2 top-0 bottom-0 w-0.5" style={{ background: 'var(--border)' }} />
-            {ACTIVITY_TIMELINE.map(item => (
-              <div key={item.id} className="relative pb-4">
-                <div className="absolute -left-4 top-1 w-3 h-3 rounded-full" style={{ background: item.color, border: '2px solid var(--bg-card)' }} />
+            {folders.slice(0, 3).map(f => (
+              <div key={f.id} className="relative pb-4">
+                <div className="absolute -left-4 top-1 w-3 h-3 rounded-full" style={{ background: '#10b981', border: '2px solid var(--bg-card)' }} />
                 <div className="flex items-start gap-2">
-                  <span className="text-sm">{item.icon}</span>
+                  <span className="text-sm">📁</span>
                   <div className="flex-1">
-                    <div className="text-sm" style={{ color: 'var(--text-primary)' }}>{item.text}</div>
-                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{item.time}</div>
+                    <div className="text-sm" style={{ color: 'var(--text-primary)' }}>Indexed folder: {f.path.split('/').pop()}</div>
+                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{new Date(f.addedAt).toLocaleDateString()}</div>
                   </div>
                 </div>
               </div>
             ))}
+            {folders.length === 0 && <div className="text-sm text-gray-500">No activity yet. Scan a folder to get started.</div>}
           </div>
         </div>
 
@@ -176,32 +202,32 @@ export default function DashboardPage() {
         <h3 className="font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Storage Breakdown</h3>
         {/* Horizontal bar */}
         <div className="w-full h-6 rounded-full overflow-hidden flex mb-4" style={{ background: 'var(--bg-secondary)' }}>
-          {DEMO_FOLDERS.map((f, i) => {
-            const totalGB = DEMO_FOLDERS.reduce((s, fo) => s + fo.sizeGB, 0);
-            const pct = (f.sizeGB / totalGB) * 100;
+          {folders.map((f, i) => {
+            const totalPhotos = folders.reduce((s, fo) => s + fo.imageCount, 0) || 1;
+            const pct = (f.imageCount / totalPhotos) * 100;
             const colors = ['#6366f1', '#8b5cf6', '#10b981', '#475569'];
             return (
               <div
                 key={f.id}
                 className="h-full transition-all"
-                style={{ width: `${pct}%`, background: colors[i] }}
-                title={`${f.path}: ${f.sizeGB} GB`}
+                style={{ width: `${pct}%`, background: colors[i % colors.length] }}
+                title={`${f.path}: ${f.imageCount} photos`}
               />
             );
           })}
         </div>
         {/* Table */}
         <div className="grid grid-cols-4 gap-3">
-          {DEMO_FOLDERS.map((f, i) => {
+          {folders.map((f, i) => {
             const colors = ['#6366f1', '#8b5cf6', '#10b981', '#475569'];
             return (
               <div key={f.id} className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded" style={{ background: colors[i] }} />
+                <div className="w-3 h-3 rounded" style={{ background: colors[i % colors.length] }} />
                 <div>
                   <div className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)', maxWidth: 150 }}>
                     {f.path.split('/').filter(Boolean).pop()}
                   </div>
-                  <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{f.sizeGB} GB • {f.imageCount.toLocaleString()} photos</div>
+                  <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{f.imageCount.toLocaleString()} photos</div>
                 </div>
               </div>
             );

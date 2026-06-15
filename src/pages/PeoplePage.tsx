@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect } from 'react';
 import {
   Users, Search, Eye, Check, Pencil, FolderOpen, Download, X, CheckCircle2, GripVertical
 } from 'lucide-react';
-import { DEMO_PEOPLE, DEMO_SEARCH_RESULTS, type DemoPerson, type DemoSearchResult } from '@/data/mockData';
 import { useToast } from '@/hooks/useToast';
 import { useUndo } from '@/hooks/useUndo';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
@@ -14,16 +13,34 @@ import { clusterFaces } from '@/utils/clustering';
 
 type Tab = 'results' | 'people';
 
+export interface Person {
+  id: string;
+  name: string;
+  avatar: string;
+  photoCount: number;
+}
+
+export interface SearchResult {
+  id: string;
+  faceId: string;
+  photoUrl: string;
+  photoId: string;
+  confidence: number;
+  folder: string;
+  verified: boolean;
+  ignored: boolean;
+}
+
 export default function PeoplePage() {
   const [tab, setTab] = useState<Tab>('results');
-  const [people, setPeople] = useState<DemoPerson[]>(DEMO_PEOPLE);
+  const [people, setPeople] = useState<Person[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
-  const [results, setResults] = useState<DemoSearchResult[]>(DEMO_SEARCH_RESULTS);
+  const [results, setResults] = useState<SearchResult[]>([]);
   const [filterPerson, setFilterPerson] = useState<string | null>(null);
   const [sortPeople, setSortPeople] = useState('photos');
   const [searchQuery, setSearchQuery] = useState('');
-  const [previewResult, setPreviewResult] = useState<DemoSearchResult | null>(null);
+  const [previewResult, setPreviewResult] = useState<SearchResult | null>(null);
   const [showManageModal, setShowManageModal] = useState(false);
   const [folderFilter, setFolderFilter] = useState('all');
   const [confFilter, setConfFilter] = useState(0);
@@ -44,12 +61,12 @@ export default function PeoplePage() {
             photoId: d.filePath
           }));
           const clusters = clusterFaces(faceItems);
-          const mappedPeople = clusters.map((c, i) => ({
-            id: c.id,
-            name: `Person ${i + 1}`,
-            avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
-            photoCount: c.faces.length
-          }));
+            const mappedPeople = clusters.map((c, i) => ({
+              id: c.id,
+              name: `Person ${i + 1}`,
+              avatar: '', // Clear avatar out to avoid fake unsplash link
+              photoCount: c.faces.length
+            }));
           setPeople(mappedPeople);
         }
       } catch (err) {

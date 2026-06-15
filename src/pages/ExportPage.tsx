@@ -5,7 +5,6 @@ import {
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
-import { DEMO_EXPORTS, DEMO_SEARCH_RESULTS } from '@/data/mockData';
 import { useToast } from '@/hooks/useToast';
 import { NoExportsSelected } from '@/components/EmptyState';
 import { useLocation } from 'wouter';
@@ -24,7 +23,8 @@ import { generateXMPSidecar } from '@/utils/xmp';
 export default function ExportPage() {
   const { addToast } = useToast();
   const [, setLocation] = useLocation();
-  const selectedResults = DEMO_SEARCH_RESULTS.filter(r => r.selected);
+  // In a real app, this would read from a global selection store (Zustand/Redux) or IndexedDB
+  const selectedResults: any[] = [];
   const selectedCount = selectedResults.length;
   const estimatedSize = `${Math.round(selectedCount * 4.2)} MB`;
 
@@ -51,7 +51,7 @@ export default function ExportPage() {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [exports, setExports] = useState(DEMO_EXPORTS);
+  const [exports, setExports] = useState<any[]>([]);
 
   const generateZip = async () => {
     setZipGenerating(true);

@@ -3,7 +3,6 @@ import {
   FolderOpen, ScanFace, Check, ArrowRight, X, Play, Pause, ExternalLink,
   ChevronLeft, ChevronRight, Download, Filter, Search, Plus, Trash2, LayoutGrid, Grid3X3, Image, Info
 } from 'lucide-react';
-import { GALLERY_PHOTOS } from '@/data/mockData';
 import { useToast } from '@/hooks/useToast';
 import { useUndo } from '@/hooks/useUndo';
 import { useKeyboardShortcuts, useRangeSelection } from '@/hooks/useKeyboardShortcuts';
@@ -14,6 +13,7 @@ import { useSemanticSearch } from '@/hooks/useSemanticSearch';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { groupPhotosIntoBursts, type BurstPhoto } from '@/utils/burstScoring';
+import { getAllFileMetadata, type FileMetadata } from '@/hooks/useIndexedDB';
 
 type AlbumFilter = 'all' | 'Family' | 'Vacations' | 'Work Events' | 'Unorganized';
 
@@ -39,6 +39,7 @@ export default function GalleryPage() {
   const [showExifPanel, setShowExifPanel] = useState(false);
   const [loading, setLoading] = useState(true);
   const [semanticQuery, setSemanticQuery] = useState('');
+  const [files, setFiles] = useState<FileMetadata[]>([]);
   const { addToast } = useToast();
   const { pushAction } = useUndo();
   const { searchImages, isReady } = useSemanticSearch();
@@ -60,13 +61,16 @@ export default function GalleryPage() {
     }, 1000);
   };
 
-  // Simulate loading
+  // Fetch real files
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 800);
-    return () => clearTimeout(timer);
+    getAllFileMetadata().then(meta => {
+      setFiles(meta);
+      setLoading(false);
+    });
   }, []);
 
-  const filtered = GALLERY_PHOTOS.filter(p => album === 'all' || p.album === album);
+  // Simplified filter for now since album doesn't exist on FileMetadata
+  const filtered = files;
   const columns = gridSize === 'small' ? 6 : 4;
   const rowCount = Math.ceil(filtered.length / columns);
 
@@ -164,23 +168,17 @@ export default function GalleryPage() {
     return (
       <div className="page-enter">
         <div className="flex items-center justify-between mb-6">
-          <div className="skeleton h-8 w-32 rounded" />
-          <div className="skeleton h-8 w-20 rounded" />
+          <div className="h-8 w-48 bg-[#222] rounded animate-pulse" />
         </div>
-        <div className="flex gap-2 mb-6">
-          {[1, 2, 3, 4, 5].map(i => (
-            <div key={i} className="skeleton h-8 w-24 rounded-full" />
-          ))}
-        </div>
-        <SkeletonGrid count={12} columns={6} />
+        <SkeletonGrid columns={gridSize === 'small' ? 6 : 4} count={12} />
       </div>
     );
   }
 
-  if (GALLERY_PHOTOS.length === 0) {
+  if (files.length === 0) {
     return (
       <div className="page-enter">
-        <EmptyGallery onImport={() => addToast('info', 'Import', 'Opening import dialog...')} />
+        <EmptyGallery onImport={() => addToast('info', 'Import', 'Navigate to Folder Manager to scan photos')} />
       </div>
     );
   }
@@ -191,7 +189,7 @@ export default function GalleryPage() {
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Gallery</h1>
-          <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{GALLERY_PHOTOS.length} photos</span>
+          <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{files.length} photos</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex bg-[#1a1a1a] rounded-lg p-1 border border-[#333]">
@@ -257,8 +255,8 @@ export default function GalleryPage() {
               onClick={() => setAlbum(a)}
             >
               {a === 'all' ? 'All Photos' : a}
-              <span className="ml-1 opacity-70">
-                ({a === 'all' ? GALLERY_PHOTOS.length : GALLERY_PHOTOS.filter(p => p.album === a).length})
+              <span className="ml-2 px-2 py-0.5 rounded-full text-xs" style={{ background: 'var(--bg-hover)' }}>
+                ({files.length})
               </span>
             </button>
           ))}
@@ -296,30 +294,31 @@ export default function GalleryPage() {
                     return (
                       <motion.div
                         variants={itemVariants}
-                        key={photo.id}
-                        layoutId={`photo-${photo.id}`}
+                        key={photo.filePath}
+                        layoutId={`photo-${photo.filePath}`}
                         className="relative rounded-xl overflow-hidden group cursor-pointer card-hover h-full"
                         style={{
                           background: 'var(--bg-card)',
-                          border: selectedIds.has(photo.id) ? '2px solid var(--accent-primary)' : '2px solid transparent',
-                          boxShadow: selectedIds.has(photo.id) ? '0 0 12px rgba(99,102,241,0.3)' : 'none',
+                          border: selectedIds.has(photo.filePath) ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                          boxShadow: selectedIds.has(photo.filePath) ? '0 0 12px rgba(99,102,241,0.3)' : 'none',
                         }}
                         onClick={() => openLightbox(idx)}
                       >
                         <div className="aspect-[4/3] relative">
-                          <img src={photo.thumbnail} alt={photo.filename} className="w-full h-full object-cover" loading="lazy" />
+                          {/* In a real Tauri desktop app, use asset:// schema for local file paths */}
+                          <div className="w-full h-full bg-[#111] flex items-center justify-center text-[#333] text-xs font-mono">{photo.filename}</div>
 
                           {/* Scanned badge */}
-                          {photo.scanned && (
+                          {photo.hasBeenScanned && (
                             <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: 'rgba(16,185,129,0.8)' }}>
                               <Check size={10} color="white" />
                             </div>
                           )}
 
                           {/* Face count badge */}
-                          {photo.faceCount > 0 && (
+                          {photo.facesDetected > 0 && (
                             <div className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold flex items-center gap-0.5" style={{ background: 'rgba(99,102,241,0.85)', color: 'white' }}>
-                              <ScanFace size={9} /> {photo.faceCount}
+                              <ScanFace size={9} /> {photo.facesDetected}
                             </div>
                           )}
 
