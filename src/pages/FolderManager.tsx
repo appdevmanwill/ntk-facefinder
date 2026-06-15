@@ -129,7 +129,7 @@ export default function FolderManager() {
             const rawThumb = await exifr.thumbnail(fileData);
             if (rawThumb) {
                // If RAW has a thumbnail, use it for processing instead of trying to decode the massive RAW
-               fileData = new File([rawThumb], file.name, { type: 'image/jpeg' });
+               fileData = new File([new Uint8Array(rawThumb)], file.name, { type: 'image/jpeg' });
             }
           } catch(e) {}
 

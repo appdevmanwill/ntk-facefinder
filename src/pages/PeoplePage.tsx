@@ -29,6 +29,10 @@ export interface SearchResult {
   folder: string;
   verified: boolean;
   ignored: boolean;
+  selected: boolean;
+  thumbnail: string;
+  filename: string;
+  faceBox: { x: number; y: number; w: number; h: number };
 }
 
 export default function PeoplePage() {
@@ -108,7 +112,7 @@ export default function PeoplePage() {
       return a.name.localeCompare(b.name);
     });
 
-  const startEdit = (person: DemoPerson) => {
+  const startEdit = (person: Person) => {
     setEditingId(person.id);
     setEditName(person.name);
   };
@@ -150,7 +154,7 @@ export default function PeoplePage() {
       const targetP = people.find(p => p.id === targetId);
       
       if (draggedP && targetP) {
-        const mergedPerson: DemoPerson = {
+        const mergedPerson: Person = {
           ...targetP,
           photoCount: targetP.photoCount + draggedP.photoCount,
         };
@@ -277,7 +281,7 @@ export default function PeoplePage() {
                             onClick={() => setPreviewResult(r)}
                           >
                             <div className="relative aspect-[3/2]">
-                              <img src={r.thumbnail} alt={r.filename} className="w-full h-full object-cover" loading="lazy" />
+                              <div className="w-full h-full bg-[#111] flex items-center justify-center text-gray-500 font-mono text-xs">{r.filename || r.photoId}</div>
                               <span
                                 className="absolute top-2 right-2 text-[10px] px-1.5 py-0.5 rounded font-bold"
                                 style={{
@@ -314,7 +318,7 @@ export default function PeoplePage() {
                               />
                             </div>
                             <div className="px-3 py-2">
-                              <div className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{r.filename}</div>
+                              <div className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{r.filename || r.photoId}</div>
                             </div>
                           </div>
                         ))}
@@ -435,11 +439,11 @@ export default function PeoplePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.8)' }} onClick={() => setPreviewResult(null)}>
           <div className="modal-enter flex rounded-2xl overflow-hidden max-w-4xl w-full mx-4" style={{ background: 'var(--bg-card)', maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
             <div className="flex-1 relative">
-              <img src={previewResult.thumbnail.replace('/300/200', '/600/400')} alt="" className="w-full h-full object-cover" />
+              <div className="w-full h-full bg-[#111] flex items-center justify-center text-gray-500 font-mono text-sm">{previewResult.filename || previewResult.photoId}</div>
             </div>
             <div className="w-72 p-5 flex flex-col gap-4" style={{ borderLeft: '1px solid var(--border)' }}>
               <button className="self-end" onClick={() => setPreviewResult(null)}><X size={18} style={{ color: 'var(--text-muted)' }} /></button>
-              <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{previewResult.filename}</div>
+              <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{previewResult.filename || previewResult.photoId}</div>
               
               <div className="flex items-center gap-2">
                 <span className="text-sm font-bold" style={{ color: previewResult.confidence >= 90 ? 'var(--success)' : 'var(--warning)' }}>{previewResult.confidence}%</span>
@@ -449,13 +453,13 @@ export default function PeoplePage() {
               </div>
 
               <ExifViewer data={{
-                camera: previewResult.camera,
-                iso: previewResult.iso,
-                shutter: previewResult.shutter,
-                aperture: previewResult.aperture,
-                date: previewResult.date,
-                dimensions: previewResult.dimensions,
-                size: previewResult.size,
+                camera: 'N/A',
+                iso: 'N/A',
+                shutter: 'N/A',
+                aperture: 'N/A',
+                date: 'N/A',
+                dimensions: 'N/A',
+                size: 'N/A',
               }} />
 
               <div className="flex gap-2 mt-auto">
@@ -497,7 +501,11 @@ export default function PeoplePage() {
                   }}
                 >
                   <div className="w-12 h-12 rounded-full mx-auto mb-2 overflow-hidden">
-                    <img src={p.avatar} alt={p.name} className="w-full h-full object-cover" draggable={false} />
+                    {p.avatar ? (
+                      <img src={p.avatar} alt={p.name} className="w-full h-full object-cover" draggable={false} />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-lg font-bold">{p.name.charAt(0)}</div>
+                    )}
                   </div>
                   <div className="text-xs font-medium truncate" style={{ color: dropTarget === p.id ? 'white' : 'var(--text-primary)' }}>{p.name}</div>
                   <div className="text-[10px]" style={{ color: dropTarget === p.id ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)' }}>{p.photoCount} photos</div>

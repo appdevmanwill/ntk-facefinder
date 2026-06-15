@@ -20,7 +20,7 @@ export async function deriveKey(password: string, salt?: Uint8Array): Promise<{ 
   const key = await crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: actualSalt,
+      salt: actualSalt as BufferSource,
       iterations: 100000,
       hash: 'SHA-256',
     },

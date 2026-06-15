@@ -58,8 +58,8 @@ self.onmessage = async (e: MessageEvent) => {
     }
     try {
       try {
-         await faceapi.tf.setBackend('webgpu');
-         await faceapi.tf.ready();
+         await (faceapi.tf as any).setBackend('webgpu');
+         await (faceapi.tf as any).ready();
          console.log('Using WebGPU backend');
       } catch (e) {
          console.warn('WebGPU not available, falling back to default', e);

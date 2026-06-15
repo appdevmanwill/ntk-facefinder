@@ -27,7 +27,7 @@ const containerVariants = {
 
 const itemVariants = {
   hidden: { opacity: 0, scale: 0.95, y: 10 },
-  show: { opacity: 1, scale: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+  show: { opacity: 1, scale: 1, y: 0, transition: { type: "spring" as const, stiffness: 300, damping: 24 } }
 };
 
 export default function GalleryPage() {
@@ -42,7 +42,7 @@ export default function GalleryPage() {
   const [files, setFiles] = useState<FileMetadata[]>([]);
   const { addToast } = useToast();
   const { pushAction } = useUndo();
-  const { searchImages, isReady } = useSemanticSearch();
+  const { modelsLoaded, embedText } = useSemanticSearch();
 
   const performSemanticSearch = async (query: string) => {
     if (!query) return;
@@ -55,8 +55,8 @@ export default function GalleryPage() {
   const autoPickBestShots = () => {
     addToast('info', 'Analyzing Bursts', 'Scoring expressions and face alignment...');
     setTimeout(() => {
-      const mockBestIds = new Set(filtered.slice(0, 5).map(p => p.id));
-      setSelectedIds(mockBestIds);
+      const bestIds = new Set(filtered.slice(0, 5).map(p => p.filePath));
+      setSelectedIds(bestIds);
       addToast('success', 'Best Shots Selected', 'Auto-picked 5 best photos from bursts');
     }, 1000);
   };
@@ -108,11 +108,11 @@ export default function GalleryPage() {
 
   const selectAll = () => {
     const prevSelected = new Set(selectedIds);
-    setSelectedIds(new Set(filtered.map(p => p.id)));
+    setSelectedIds(new Set(filtered.map(p => p.filePath)));
     pushAction({
       description: `Selected all ${filtered.length} photos`,
       undo: () => setSelectedIds(prevSelected),
-      redo: () => setSelectedIds(new Set(filtered.map(p => p.id))),
+      redo: () => setSelectedIds(new Set(filtered.map(p => p.filePath))),
     });
   };
 
@@ -154,7 +154,7 @@ export default function GalleryPage() {
       if (e.key === 'Escape') closeLightbox();
       if (e.key === ' ') {
         e.preventDefault();
-        toggleSelect(filtered[lightboxIdx].id);
+        toggleSelect(filtered[lightboxIdx].filePath);
       }
       if (e.key === 'i') setShowExifPanel(prev => !prev);
     };
@@ -225,20 +225,20 @@ export default function GalleryPage() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
           <input
             type="text"
-            placeholder={isReady ? "Search AI concepts (e.g. 'dog running', 'beach')" : "Loading AI models..."}
+            placeholder={modelsLoaded ? "Search AI concepts (e.g. 'dog running', 'beach')" : "Loading AI models..."}
             className="w-full pl-9 pr-4 py-2 rounded-lg text-sm"
             style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
             value={semanticQuery}
             onChange={(e) => {
               setSemanticQuery(e.target.value);
               if (e.target.value.length > 2) {
-                 // Mocking semantic search call - in production it filters the list based on similarity score
-                 searchImages(e.target.value, []).then(() => {
+                 // Semantic search - embed text query for similarity matching
+                 embedText(e.target.value).then(() => {
                     // Update state with sorted images, simplified for MVP
                  });
               }
             }}
-            disabled={!isReady}
+            disabled={!modelsLoaded}
           />
         </div>
 
@@ -324,14 +324,14 @@ export default function GalleryPage() {
 
                           {/* Checkbox */}
                           <div
-                            className={`absolute top-1.5 left-1.5 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${selectedIds.has(photo.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                            className={`absolute top-1.5 left-1.5 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${selectedIds.has(photo.filePath) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
                             style={{
-                              borderColor: selectedIds.has(photo.id) ? 'var(--accent-primary)' : 'white',
-                              background: selectedIds.has(photo.id) ? 'var(--accent-primary)' : 'rgba(0,0,0,0.3)',
+                              borderColor: selectedIds.has(photo.filePath) ? 'var(--accent-primary)' : 'white',
+                              background: selectedIds.has(photo.filePath) ? 'var(--accent-primary)' : 'rgba(0,0,0,0.3)',
                             }}
-                            onClick={(e) => { e.stopPropagation(); toggleSelect(photo.id, e.shiftKey); }}
+                            onClick={(e) => { e.stopPropagation(); toggleSelect(photo.filePath, e.shiftKey); }}
                           >
-                            {selectedIds.has(photo.id) && <Check size={10} color="white" />}
+                            {selectedIds.has(photo.filePath) && <Check size={10} color="white" />}
                           </div>
 
                           {/* Hover filename */}
@@ -340,12 +340,12 @@ export default function GalleryPage() {
                           </div>
                         </div>
 
-                        {/* Person tags */}
-                        {photo.people.length > 0 && (
+                        {/* Tags */}
+                        {(photo.tags?.length ?? 0) > 0 && (
                           <div className="px-2 py-1.5 flex gap-1 flex-wrap">
-                            {photo.people.map(p => (
-                              <span key={p} className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--accent-primary)' }}>
-                                {p}
+                            {photo.tags!.map((tag: string) => (
+                              <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--accent-primary)' }}>
+                                {tag}
                               </span>
                             ))}
                           </div>
@@ -438,31 +438,17 @@ export default function GalleryPage() {
                 </button>
 
                 <div className="relative max-w-4xl max-h-[80vh]">
-                  <motion.img 
-                    layoutId={`photo-${currentPhoto.id}`}
-                    src={currentPhoto.thumbnail.replace('400/300', '800/600')} 
-                    alt="" 
-                    className="max-w-full max-h-[80vh] object-contain rounded-lg" 
-                  />
-                  {showFaceOverlay && currentPhoto.faceCount > 0 && (
+                  <motion.div 
+                    layoutId={`photo-${currentPhoto.filePath}`}
+                    className="max-w-full max-h-[80vh] flex items-center justify-center bg-[#111] rounded-lg p-12"
+                  >
+                    <span className="text-gray-500 font-mono text-sm">{currentPhoto.filename}</span>
+                  </motion.div>
+                  {showFaceOverlay && currentPhoto.facesDetected > 0 && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0">
-                      {currentPhoto.people.map((name, i) => (
-                        <div
-                          key={i}
-                          className="absolute border-2 rounded-sm"
-                          style={{
-                            left: `${25 + i * 20}%`,
-                            top: '20%',
-                            width: '15%',
-                            height: '25%',
-                            borderColor: 'var(--accent-primary)',
-                          }}
-                        >
-                          <span className="absolute -bottom-6 left-0 text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'var(--accent-primary)', color: 'white' }}>
-                            {name}
-                          </span>
-                        </div>
-                      ))}
+                      <div className="absolute top-4 left-4 px-2 py-1 rounded text-xs bg-indigo-600 text-white">
+                        {currentPhoto.facesDetected} face(s) detected
+                      </div>
                     </motion.div>
                   )}
                 </div>
@@ -478,10 +464,10 @@ export default function GalleryPage() {
 
               {/* Bottom info */}
               <div className="flex items-center justify-center gap-6 px-6 py-3 text-xs" style={{ color: 'var(--text-muted)', borderTop: '1px solid var(--border)' }}>
-                <span>Date: {currentPhoto.date}</span>
-                <span>Size: {currentPhoto.size}</span>
-                <span>Dimensions: {currentPhoto.dimensions}</span>
-                <span>{lightboxIdx + 1} of {filtered.length}</span>
+                <span>Modified: {new Date(currentPhoto.lastModified).toLocaleDateString()}</span>
+                <span>Size: {(currentPhoto.size / 1024).toFixed(0)} KB</span>
+                {currentPhoto.width && currentPhoto.height && <span>Dimensions: {currentPhoto.width}×{currentPhoto.height}</span>}
+                <span>{(lightboxIdx as number) + 1} of {filtered.length}</span>
                 <span className="flex items-center gap-1">
                   <kbd className="px-1 py-0.5 rounded text-[10px]" style={{ background: 'var(--bg-secondary)' }}>←→</kbd>
                   Navigate
@@ -504,16 +490,16 @@ export default function GalleryPage() {
               >
                 <ExifPanel 
                   data={{
-                    camera: 'Canon EOS R5',
-                    iso: '400',
-                    shutter: '1/250',
-                    aperture: 'f/2.8',
-                    date: currentPhoto.date,
-                    dimensions: currentPhoto.dimensions,
-                    size: currentPhoto.size,
+                    camera: 'Unknown',
+                    iso: 'N/A',
+                    shutter: 'N/A',
+                    aperture: 'N/A',
+                    date: new Date(currentPhoto.lastModified).toLocaleDateString(),
+                    dimensions: currentPhoto.width && currentPhoto.height ? `${currentPhoto.width}×${currentPhoto.height}` : 'N/A',
+                    size: `${(currentPhoto.size / 1024).toFixed(0)} KB`,
                   }}
-                  people={currentPhoto.people}
-                  albums={[currentPhoto.album]}
+                  people={currentPhoto.tags || []}
+                  albums={[]}
                 />
               </motion.div>
             )}
