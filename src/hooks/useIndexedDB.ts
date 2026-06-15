@@ -1,5 +1,6 @@
 // IndexedDB persistence for folder handles and app data
 // This allows us to persist FileSystemDirectoryHandle objects between sessions
+import { getAppCryptoKey, encryptData, decryptData } from '@/utils/crypto';
 
 const DB_NAME = 'FaceFinderDB';
 const DB_VERSION = 1;
@@ -21,6 +22,8 @@ interface FaceDescriptor {
   filePath: string;
   folderId: string;
   descriptor: number[]; // 128-dimensional face descriptor
+  encryptedDescriptor?: string;
+  iv?: string;
   box: { x: number; y: number; width: number; height: number };
   confidence: number;
   createdAt: string;
@@ -181,13 +184,33 @@ export async function deleteFolder(id: string): Promise<void> {
 
 export async function saveFaceDescriptor(descriptor: FaceDescriptor): Promise<void> {
   const database = await initDB();
+  const { key } = await getAppCryptoKey();
+  const { ciphertext, iv } = await encryptData(key, descriptor.descriptor);
+  const toSave = { ...descriptor, descriptor: [], encryptedDescriptor: ciphertext, iv };
+
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(['faceDescriptors'], 'readwrite');
     const store = transaction.objectStore('faceDescriptors');
-    const request = store.put(descriptor);
+    const request = store.put(toSave);
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve();
   });
+}
+
+async function decryptDescriptorList(records: FaceDescriptor[]): Promise<FaceDescriptor[]> {
+  const { key } = await getAppCryptoKey();
+  return Promise.all(records.map(async (row) => {
+    if (row.encryptedDescriptor && row.iv) {
+      try {
+        const desc = await decryptData(key, row.encryptedDescriptor, row.iv);
+        return { ...row, descriptor: desc };
+      } catch (e) {
+        console.error('Failed to decrypt descriptor', e);
+        return row;
+      }
+    }
+    return row;
+  }));
 }
 
 export async function getFaceDescriptors(folderId?: string): Promise<FaceDescriptor[]> {
@@ -200,11 +223,11 @@ export async function getFaceDescriptors(folderId?: string): Promise<FaceDescrip
       const index = store.index('folderId');
       const request = index.getAll(IDBKeyRange.only(folderId));
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = async () => resolve(await decryptDescriptorList(request.result));
     } else {
       const request = store.getAll();
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = async () => resolve(await decryptDescriptorList(request.result));
     }
   });
 }
@@ -217,7 +240,7 @@ export async function getFaceDescriptorsByPerson(personId: string): Promise<Face
     const index = store.index('personId');
     const request = index.getAll(IDBKeyRange.only(personId));
     request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = async () => resolve(await decryptDescriptorList(request.result));
   });
 }
 
@@ -302,7 +325,7 @@ export async function getThumbnail(filePath: string): Promise<string | null> {
 // File Metadata Operations
 // ============================================
 
-interface FileMetadata {
+export interface FileMetadata {
   filePath: string;
   folderId: string;
   filename: string;
@@ -312,6 +335,11 @@ interface FileMetadata {
   height?: number;
   hasBeenScanned: boolean;
   facesDetected: number;
+  tags?: string[];
+  latitude?: number | null;
+  longitude?: number | null;
+  embedding?: number[]; // For Cosine Similarity / Find Similar
+  videoTimestamps?: { time: number; tags: string[] }[]; // For NLP Video Search
 }
 
 export async function saveFileMetadata(metadata: FileMetadata): Promise<void> {

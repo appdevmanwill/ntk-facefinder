@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   Users, Search, Eye, Check, Pencil, FolderOpen, Download, X, CheckCircle2, GripVertical
 } from 'lucide-react';
@@ -9,6 +9,8 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { SkeletonGrid, SkeletonPerson } from '@/components/Skeletons';
 import { NoPeople, NoSearchResults } from '@/components/EmptyState';
 import ExifViewer from '@/components/ExifViewer';
+import { getFaceDescriptors } from '@/hooks/useIndexedDB';
+import { clusterFaces } from '@/utils/clustering';
 
 type Tab = 'results' | 'people';
 
@@ -30,6 +32,32 @@ export default function PeoplePage() {
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const { addToast } = useToast();
   const { pushAction } = useUndo();
+
+  useEffect(() => {
+    async function loadClusters() {
+      try {
+        const descriptors = await getFaceDescriptors();
+        if (descriptors.length > 0) {
+          const faceItems = descriptors.map(d => ({
+            id: d.id,
+            descriptor: new Float32Array(d.descriptor),
+            photoId: d.filePath
+          }));
+          const clusters = clusterFaces(faceItems);
+          const mappedPeople = clusters.map((c, i) => ({
+            id: c.id,
+            name: `Person ${i + 1}`,
+            avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+            photoCount: c.faces.length
+          }));
+          setPeople(mappedPeople);
+        }
+      } catch (err) {
+        console.error('Failed to load clusters', err);
+      }
+    }
+    loadClusters();
+  }, []);
 
   const toggleSelect = (id: string) => {
     const result = results.find(r => r.id === id);

@@ -4,11 +4,13 @@ import {
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import jsPDF from 'jspdf';
 import { DEMO_EXPORTS, DEMO_SEARCH_RESULTS } from '@/data/mockData';
 import { useToast } from '@/hooks/useToast';
 import { NoExportsSelected } from '@/components/EmptyState';
 import { useLocation } from 'wouter';
 import { useFileSystem } from '@/hooks/useFileSystem';
+import { generateXMPSidecar } from '@/utils/xmp';
 
 /*
  * ARCHITECTURE NOTE:
@@ -30,6 +32,9 @@ export default function ExportPage() {
   const [folderStructure, setFolderStructure] = useState<'flat' | 'original' | 'date'>('original');
   const [compression, setCompression] = useState<'none' | 'normal' | 'max'>('normal');
   const [includeMetadata, setIncludeMetadata] = useState(true);
+  const [includeXmp, setIncludeXmp] = useState(true);
+  const [smartCrop, setSmartCrop] = useState(false);
+  const [pdfContactSheet, setPdfContactSheet] = useState(false);
   const [zipGenerating, setZipGenerating] = useState(false);
   const [zipProgress, setZipProgress] = useState(0);
   const [zipReady, setZipReady] = useState(false);
@@ -75,9 +80,18 @@ export default function ExportPage() {
             ? `${folder}/${photo.filename}`
             : `${photo.date.slice(0, 4)}/${photo.date.slice(5, 7)}/${photo.filename}`;
           
+          const finalPath = smartCrop ? path.replace('.jpg', '_headshot.jpg') : path;
+          
           // Add a placeholder file (in real app, would fetch actual image)
-          const content = `Photo: ${photo.filename}\nConfidence: ${photo.confidence}%\nDate: ${photo.date}\nFolder: ${photo.folder}`;
-          zip.file(path.replace('.jpg', '.txt'), content);
+          const content = smartCrop 
+             ? `[CROPPED HEADSHOT]\nPhoto: ${photo.filename}\nConfidence: ${photo.confidence}%\nDate: ${photo.date}\nFolder: ${photo.folder}`
+             : `Photo: ${photo.filename}\nConfidence: ${photo.confidence}%\nDate: ${photo.date}\nFolder: ${photo.folder}`;
+          zip.file(finalPath.replace('.jpg', '.txt'), content);
+          
+          if (includeXmp && photo.people && photo.people.length > 0) {
+            const xmpContent = generateXMPSidecar(photo.filename, photo.people);
+            zip.file(path.replace('.jpg', '.xmp'), xmpContent);
+          }
           
           processedCount++;
           setZipProgress(Math.round((processedCount / selectedResults.length) * 90));
@@ -96,6 +110,29 @@ export default function ExportPage() {
           )
         ].join('\n');
         zip.file('metadata.csv', csv);
+      }
+
+      if (pdfContactSheet) {
+        try {
+           const doc = new jsPDF();
+           doc.setFontSize(20);
+           doc.text('FaceFinder Contact Sheet', 10, 20);
+           doc.setFontSize(12);
+           doc.text(`Generated on ${new Date().toLocaleDateString()}`, 10, 30);
+           let yOffset = 45;
+           selectedResults.forEach((r, index) => {
+              doc.text(`${index + 1}. ${r.filename} (${r.confidence}%) - ${r.date}`, 10, yOffset);
+              yOffset += 10;
+              if (yOffset > 280) {
+                 doc.addPage();
+                 yOffset = 20;
+              }
+           });
+           const pdfData = doc.output('arraybuffer');
+           zip.file('contact_sheet.pdf', pdfData);
+        } catch (err) {
+           console.error('PDF Generation Failed', err);
+        }
       }
 
       setZipProgress(95);
@@ -268,6 +305,48 @@ export default function ExportPage() {
                 Include metadata CSV
               </label>
 
+              <label className="flex items-center gap-2 text-xs mb-4 cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                <div
+                  className="w-4 h-4 rounded border-2 flex items-center justify-center"
+                  style={{
+                    borderColor: includeXmp ? 'var(--accent-primary)' : 'var(--border)',
+                    background: includeXmp ? 'var(--accent-primary)' : 'transparent',
+                  }}
+                  onClick={() => setIncludeXmp(!includeXmp)}
+                >
+                  {includeXmp && <Check size={10} color="white" />}
+                </div>
+                Include XMP Sidecars (Lightroom/CaptureOne)
+              </label>
+
+              <label className="flex items-center gap-2 text-xs mb-4 cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                <div
+                  className="w-4 h-4 rounded border-2 flex items-center justify-center"
+                  style={{
+                    borderColor: smartCrop ? 'var(--accent-primary)' : 'var(--border)',
+                    background: smartCrop ? 'var(--accent-primary)' : 'transparent',
+                  }}
+                  onClick={() => setSmartCrop(!smartCrop)}
+                >
+                  {smartCrop && <Check size={10} color="white" />}
+                </div>
+                Smart Crop Faces (Headshots only)
+              </label>
+
+              <label className="flex items-center gap-2 text-xs mb-4 cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                <div
+                  className="w-4 h-4 rounded border-2 flex items-center justify-center"
+                  style={{
+                    borderColor: pdfContactSheet ? 'var(--accent-primary)' : 'var(--border)',
+                    background: pdfContactSheet ? 'var(--accent-primary)' : 'transparent',
+                  }}
+                  onClick={() => setPdfContactSheet(!pdfContactSheet)}
+                >
+                  {pdfContactSheet && <Check size={10} color="white" />}
+                </div>
+                Include PDF Contact Sheet
+              </label>
+
               {/* Preview tree */}
               <div className="p-3 rounded-lg mb-4 text-[10px] font-mono" style={{ background: 'var(--bg-secondary)', color: 'var(--text-muted)' }}>
                 <div>{zipName}.zip</div>
@@ -286,6 +365,7 @@ export default function ExportPage() {
                 ) : (
                   <div className="pl-3">└── {selectedCount} files</div>
                 )}
+                {includeXmp && <div className="pl-3">└── *.xmp sidecars</div>}
                 {includeMetadata && <div className="pl-3">└── metadata.csv</div>}
               </div>
 

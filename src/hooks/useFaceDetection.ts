@@ -1,13 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import * as faceapi from 'face-api.js';
-
-const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
 
 export interface DetectedFace {
   box: { x: number; y: number; width: number; height: number };
-  landmarks?: faceapi.FaceLandmarks68;
   descriptor?: Float32Array;
   score: number;
+  blurScore?: number;
 }
 
 export interface UseFaceDetectionResult {
@@ -23,7 +20,46 @@ export function useFaceDetection(): UseFaceDetectionResult {
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  
+  const workerRef = useRef<Worker | null>(null);
+  const resolves = useRef<Record<string, (val: any) => void>>({});
+  const rejects = useRef<Record<string, (err: any) => void>>({});
   const loadAttempted = useRef(false);
+
+  useEffect(() => {
+    workerRef.current = new Worker(new URL('../workers/faceDetection.worker.ts', import.meta.url), { type: 'module' });
+    
+    workerRef.current.onmessage = (e) => {
+      const { type, id, result, error } = e.data;
+      if (type === 'INIT_DONE') {
+        setModelsLoaded(true);
+        setModelsLoading(false);
+      } else if (type === 'INIT_ERROR') {
+        setModelsError(error);
+        setModelsLoading(false);
+      } else if (type === 'DETECT_DONE') {
+        if (id && resolves.current[id]) {
+          const faces = result.map((f: any) => ({
+             ...f,
+             descriptor: new Float32Array(f.descriptor)
+          }));
+          resolves.current[id](faces);
+          delete resolves.current[id];
+          delete rejects.current[id];
+        }
+      } else if (type === 'DETECT_ERROR') {
+        if (id && rejects.current[id]) {
+          rejects.current[id](new Error(error));
+          delete resolves.current[id];
+          delete rejects.current[id];
+        }
+      }
+    };
+    
+    return () => {
+      workerRef.current?.terminate();
+    };
+  }, []);
 
   const loadModels = useCallback(async () => {
     if (modelsLoaded || modelsLoading || loadAttempted.current) return;
@@ -31,21 +67,7 @@ export function useFaceDetection(): UseFaceDetectionResult {
     loadAttempted.current = true;
     setModelsLoading(true);
     setModelsError(null);
-
-    try {
-      await Promise.all([
-        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-      ]);
-      setModelsLoaded(true);
-    } catch (error) {
-      console.error('Failed to load face-api models:', error);
-      setModelsError('Failed to load face recognition models. Please check your internet connection.');
-      loadAttempted.current = false; // Allow retry
-    } finally {
-      setModelsLoading(false);
-    }
+    workerRef.current?.postMessage({ type: 'INIT' });
   }, [modelsLoaded, modelsLoading]);
 
   // Auto-load models on mount
@@ -54,31 +76,31 @@ export function useFaceDetection(): UseFaceDetectionResult {
   }, [loadModels]);
 
   const detectFaces = useCallback(async (imageElement: HTMLImageElement | HTMLCanvasElement): Promise<DetectedFace[]> => {
-    if (!modelsLoaded) {
+    if (!modelsLoaded || !workerRef.current) {
       throw new Error('Models not loaded yet');
     }
 
-    try {
-      const detections = await faceapi
-        .detectAllFaces(imageElement, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
-        .withFaceLandmarks()
-        .withFaceDescriptors();
-
-      return detections.map(det => ({
-        box: {
-          x: det.detection.box.x,
-          y: det.detection.box.y,
-          width: det.detection.box.width,
-          height: det.detection.box.height,
-        },
-        landmarks: det.landmarks,
-        descriptor: det.descriptor,
-        score: det.detection.score,
-      }));
-    } catch (error) {
-      console.error('Face detection failed:', error);
-      return [];
+    let imageData: ImageData;
+    if (imageElement instanceof HTMLCanvasElement) {
+      const ctx = imageElement.getContext('2d');
+      if (!ctx) return [];
+      imageData = ctx.getImageData(0, 0, imageElement.width, imageElement.height);
+    } else {
+      const canvas = document.createElement('canvas');
+      canvas.width = imageElement.naturalWidth || imageElement.width;
+      canvas.height = imageElement.naturalHeight || imageElement.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return [];
+      ctx.drawImage(imageElement, 0, 0, canvas.width, canvas.height);
+      imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     }
+
+    return new Promise((resolve, reject) => {
+      const id = Math.random().toString(36).substring(2, 11);
+      resolves.current[id] = resolve;
+      rejects.current[id] = reject;
+      workerRef.current?.postMessage({ type: 'DETECT', id, data: { imageData } });
+    });
   }, [modelsLoaded]);
 
   const drawDetections = useCallback((

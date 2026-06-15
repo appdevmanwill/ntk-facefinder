@@ -1,6 +1,6 @@
 import { useLocation, Link } from 'wouter';
 import {
-  ScanFace, Search, FolderOpen, Users, Image, Cloud, Download, BarChart3, Settings, Loader2, CheckCircle2, AlertCircle, HardDrive, LogOut, Menu, X
+  ScanFace, Search, FolderOpen, Users, Image, Cloud, Download, BarChart3, Settings, Loader2, CheckCircle2, AlertCircle, HardDrive, LogOut, Menu, X, MapPin, Share2, Film
 } from 'lucide-react';
 import { useAppContext } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -14,7 +14,10 @@ const navItems = [
   { path: '/folders', label: 'Folder Manager', icon: FolderOpen },
   { path: '/people', label: 'People & Results', icon: Users },
   { path: '/gallery', label: 'Gallery', icon: Image },
+  { path: '/memories', label: 'Highlights', icon: Film },
+  { path: '/map', label: 'Map View', icon: MapPin },
   { path: '/cloud', label: 'Cloud Storage', icon: Cloud },
+  { path: '/share', label: 'Share Albums', icon: Share2 },
   { path: '/export', label: 'Export Center', icon: Download },
   { path: '/dashboard', label: 'Dashboard', icon: BarChart3 },
   { path: '/settings', label: 'Settings', icon: Settings },

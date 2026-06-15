@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Route, Switch } from 'wouter';
+import { AnimatePresence } from 'framer-motion';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { AppProvider } from '@/context/AppContext';
@@ -13,6 +14,10 @@ import PeoplePage from '@/pages/PeoplePage';
 import GalleryPage from '@/pages/GalleryPage';
 import CloudPage from '@/pages/CloudPage';
 import ExportPage from '@/pages/ExportPage';
+import MapPage from '@/pages/MapPage';
+import SharePage from '@/pages/SharePage';
+import ViewerPage from '@/pages/ViewerPage';
+import MemoriesPage from '@/pages/MemoriesPage';
 import DashboardPage from '@/pages/DashboardPage';
 import SettingsPage from '@/pages/SettingsPage';
 import LoginPage from '@/pages/LoginPage';
@@ -65,18 +70,23 @@ function AppContent() {
   return (
     <div className="flex min-h-screen" style={{ background: 'var(--bg-primary)' }}>
       <Sidebar />
-      <main className="app-main flex-1 overflow-y-auto">
-
-        <Switch>
-          <Route path="/" component={SearchPage} />
-          <Route path="/folders" component={FolderManager} />
-          <Route path="/people" component={PeoplePage} />
-          <Route path="/gallery" component={GalleryPage} />
-          <Route path="/cloud" component={CloudPage} />
-          <Route path="/export" component={ExportPage} />
-          <Route path="/dashboard" component={DashboardPage} />
-          <Route path="/settings" component={SettingsPage} />
-        </Switch>
+      <main className="app-main flex-1 overflow-y-auto relative">
+        <AnimatePresence mode="wait">
+          <Switch>
+            <Route path="/" component={SearchPage} />
+            <Route path="/folders" component={FolderManager} />
+            <Route path="/people" component={PeoplePage} />
+            <Route path="/gallery" component={GalleryPage} />
+            <Route path="/cloud" component={CloudPage} />
+            <Route path="/export" component={ExportPage} />
+            <Route path="/map" component={MapPage} />
+            <Route path="/share" component={SharePage} />
+            <Route path="/viewer/:peerId" component={ViewerPage} />
+            <Route path="/memories" component={MemoriesPage} />
+            <Route path="/dashboard" component={DashboardPage} />
+            <Route path="/settings" component={SettingsPage} />
+          </Switch>
+        </AnimatePresence>
       </main>
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
     </div>

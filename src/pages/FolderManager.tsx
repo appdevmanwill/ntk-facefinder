@@ -5,7 +5,10 @@ import {
 } from 'lucide-react';
 import { useFileSystem, type LocalFolder, type LocalFile } from '@/hooks/useFileSystem';
 import { useFaceDetection } from '@/hooks/useFaceDetection';
+import { useAutoTagger } from '@/hooks/useAutoTagger';
+import * as exifr from 'exifr';
 import { saveFaceDescriptor, saveFileMetadata, saveThumbnail } from '@/hooks/useIndexedDB';
+import { getFileHash } from '@/utils/hash';
 import { useToast } from '@/hooks/useToast';
 import { useAppContext } from '@/context/AppContext';
 import { SkeletonRow } from '@/components/Skeletons';
@@ -27,6 +30,7 @@ export default function FolderManager() {
   } = useFileSystem();
 
   const { detectFaces, modelsLoaded } = useFaceDetection();
+  const { isReady: isTaggerReady, tagImage } = useAutoTagger();
   const { addToast } = useToast();
   const { setScanProgress: setGlobalScanProgress } = useAppContext();
 
@@ -38,6 +42,7 @@ export default function FolderManager() {
   const [scannedFiles, setScannedFiles] = useState<LocalFile[]>([]);
   const [recentThumbnails, setRecentThumbnails] = useState<string[]>([]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [duplicatesCount, setDuplicatesCount] = useState<number | null>(null);
 
   // Select first folder by default
   useEffect(() => {
@@ -114,8 +119,19 @@ export default function FolderManager() {
         setCurrentFile(file.name);
         
         try {
-          const fileData = await readFile(file);
+          let fileData = await readFile(file);
           if (!fileData) continue;
+          
+          let gpsData: any = null;
+          try {
+            // Attempt to parse GPS and RAW thumbnail
+            gpsData = await exifr.gps(fileData);
+            const rawThumb = await exifr.thumbnail(fileData);
+            if (rawThumb) {
+               // If RAW has a thumbnail, use it for processing instead of trying to decode the massive RAW
+               fileData = new File([rawThumb], file.name, { type: 'image/jpeg' });
+            }
+          } catch(e) {}
 
           // Generate and cache thumbnail
           const thumbnail = await generateThumbnail(fileData, 200);
@@ -135,6 +151,16 @@ export default function FolderManager() {
               URL.revokeObjectURL(url);
               
               try {
+                // Auto tag the image
+                let autoTags: string[] = [];
+                if (isTaggerReady) {
+                  try {
+                    autoTags = await tagImage(thumbnail); // Pass the Data URL thumbnail for faster processing
+                  } catch (e) {
+                    console.warn('AutoTagger failed:', e);
+                  }
+                }
+
                 const faces = await detectFaces(img);
                 totalFaces += faces.length;
 
@@ -165,6 +191,9 @@ export default function FolderManager() {
                   height: img.naturalHeight,
                   hasBeenScanned: true,
                   facesDetected: faces.length,
+                  tags: autoTags,
+                  latitude: gpsData?.latitude || null,
+                  longitude: gpsData?.longitude || null,
                 });
 
                 resolve();
@@ -206,6 +235,34 @@ export default function FolderManager() {
       setGlobalScanProgress(null);
     }
   }, [selectedFolder, modelsLoaded, scanFolder, readFile, generateThumbnail, detectFaces, addToast, setGlobalScanProgress]);
+
+  const scanForDuplicates = useCallback(async () => {
+    if (!selectedFolder) return;
+    setScanning(true);
+    addToast('info', 'Scanning for duplicates...', 'Calculating cryptographic hashes');
+    try {
+      const files = await scanFolder(selectedFolder, () => {});
+      const hashes = new Map<string, string>();
+      let dupCount = 0;
+      for (const file of files) {
+        const fileData = await readFile(file);
+        if (fileData) {
+           const hash = await getFileHash(fileData);
+           if (hashes.has(hash)) {
+              dupCount++;
+           } else {
+              hashes.set(hash, file.path);
+           }
+        }
+      }
+      setDuplicatesCount(dupCount);
+      addToast('success', 'Duplicate Scan Complete', `Found ${dupCount} exact duplicates`);
+    } catch (err) {
+      addToast('error', 'Duplicate Scan Failed', 'Failed to calculate hashes');
+    } finally {
+      setScanning(false);
+    }
+  }, [selectedFolder, scanFolder, readFile, addToast]);
 
   // Show unsupported browser message
   if (!isSupported) {
@@ -414,15 +471,26 @@ export default function FolderManager() {
               </>
             )}
 
-            <button
-              className="w-full py-3 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-50"
-              style={{ background: 'var(--accent-primary)' }}
-              onClick={startScan}
-              disabled={!selectedFolder.isAccessible || !modelsLoaded}
-            >
-              <ScanFace size={16} className="inline mr-2" />
-              {!modelsLoaded ? 'Waiting for AI Models...' : 'Scan This Folder Now'}
-            </button>
+            <div className="flex gap-3 mt-4">
+               <button
+                 className="flex-1 py-3 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-50"
+                 style={{ background: 'var(--accent-primary)' }}
+                 onClick={startScan}
+                 disabled={!selectedFolder.isAccessible || !modelsLoaded}
+               >
+                 <ScanFace size={16} className="inline mr-2" />
+                 {!modelsLoaded ? 'Waiting for AI Models...' : 'Scan This Folder Now'}
+               </button>
+               <button
+                 className="flex-1 py-3 rounded-xl text-sm font-semibold transition-all disabled:opacity-50"
+                 style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+                 onClick={scanForDuplicates}
+                 disabled={!selectedFolder.isAccessible}
+               >
+                 Find Duplicates
+                 {duplicatesCount !== null && ` (${duplicatesCount} found)`}
+               </button>
+            </div>
             
             {!modelsLoaded && (
               <p className="text-xs text-center mt-2" style={{ color: 'var(--text-muted)' }}>
